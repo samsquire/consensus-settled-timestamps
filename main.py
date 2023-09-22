@@ -50,6 +50,18 @@ servers = [
     }
   }
 ]
+for i in range(0, 4):
+  servers.append( {
+    "name": "server{}".format(len(servers)),
+    "value": [],
+    "timestamp": {
+      0: thismoment,
+      1: thismoment,
+      2: thismoment,
+      3: thismoment,
+      4: thismoment
+    }
+  })
 
 
 class Server(Process):
