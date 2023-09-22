@@ -66,13 +66,14 @@ class Server(Process):
     value = 0
     self.servers[self.identifier]["value"].sort(key=operator.itemgetter("timestamp"), reverse=False)
     for item in self.servers[self.identifier]["value"]:
-      if item["timestamp"] < datetime.now() and self.servers[self.identifier]["timestamp"][item["origin"]] >= item["timestamp"]:
+      if item["timestamp"] < self.servers[self.identifier]["timestamp"][self.identifier] and self.servers[self.identifier]["timestamp"][item["origin"]] >= item["timestamp"]:
         value = item["value"]
     return value
   
   def run(self):
     stopping = False
     stoppings = 0
+    sent_stopping = False
     while self.running:
       
       try:
@@ -83,12 +84,12 @@ class Server(Process):
           if item is not None:
             if item[0] == "stop":
               stopping = True
-              
+              # print("asked to stop")
             if item[0] == "receivedstopping":
               stoppings = stoppings + 1
-              if stoppings == len(self.otherqueues) - 1:
-                self.running = False
-                break
+              # print("someone finished")
+              
+              
               
             if item[0] == "timestamp":
               self.servers[self.identifier]["timestamp"][item[1]] = item[2]
@@ -103,31 +104,39 @@ class Server(Process):
           # print("wrote to {}".format(server))
         else:
           self.servers[server]["timestamp"][self.identifier] = me
-      snapshot = datetime.now() + timedelta(milliseconds=50)
+      snapshot = me + timedelta(milliseconds=50)
       nextvalue = self.latest() + random.randint(0, 15)
-      if stopping:
+
+      
+      if stopping and not sent_stopping:
+        sent_stopping = True
         stoppings = stoppings + 1
         for queue in range(len(self.otherqueues)):
           if queue != self.identifier:
             self.otherqueues[queue].put(("receivedstopping",))
-        
-      if stopping:
+
+      if stoppings == len(self.otherqueues):
+        self.running = False
         break
-      for server in range(len(self.servers)):
-        if server == self.identifier:
-          self.servers[self.identifier]["value"].append({
-            "origin": self.identifier,
-            "timestamp": snapshot,
-            "value":
-            nextvalue
-          })
-        else:
-          self.otherqueues[server].put(("update", self.identifier, {
-            "origin": self.identifier,
-            "timestamp": snapshot,
-            "value":
-            nextvalue
-          }))
+      
+      if not stopping:
+        
+        for server in range(len(self.servers)):
+          if server == self.identifier:
+            self.servers[self.identifier]["value"].append({
+              "origin": self.identifier,
+              "timestamp": snapshot,
+              "value":
+              nextvalue
+            })
+          else:
+            self.otherqueues[server].put(("update", self.identifier, {
+              "origin": self.identifier,
+              "timestamp": snapshot,
+              "value":
+              nextvalue
+            }))
+    time.sleep(1)
     self.mainthread.put(self.latest())
 
 threads = []
