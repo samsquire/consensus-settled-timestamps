@@ -3,10 +3,12 @@ import time
 from datetime import datetime, timedelta
 import random
 import operator
+from pprint import pprint
 thismoment = datetime.now()
 servers = [
 
 ]
+from collections import Counter
 servercount = 10
 for i in range(0, servercount):
   servdata = {
@@ -33,11 +35,11 @@ class Server(Process):
 
   def latest(self, me):
     value = 0
-    self.servers[self.identifier]["value"].sort(key=operator.itemgetter("timestamp"), reverse=False)
+    self.servers[self.identifier]["value"].sort(key=operator.itemgetter("key"), reverse=False)
     for item in self.servers[self.identifier]["value"]:
       if me is None:
         me = self.servers[self.identifier]["timestamp"][self.identifier]
-      if item["timestamp"] <= me and self.servers[self.identifier]["timestamp"][item["origin"]] >= item["timestamp"]:
+      if item["timestamp"] < me and self.servers[self.identifier]["timestamp"][item["origin"]] > item["timestamp"]:
         
         value = item["value"]
         
@@ -45,11 +47,10 @@ class Server(Process):
 
   def consistentread(self):
     timestamps = []
+    
     for server in self.servers:
       for timestamp in server["timestamp"].values():
         timestamps.append(timestamp)
-    
-    
     
     return min(timestamps)
       
@@ -82,7 +83,7 @@ class Server(Process):
             if item[0] == "receivedstopping":
               stoppings = stoppings + 1
               #print(stoppings)
-              if stoppings >= len(self.otherqueues) - 1:
+              if stoppings >= len(self.otherqueues):
                 print("finished")
                 self.running = False
                 break
@@ -97,14 +98,17 @@ class Server(Process):
               
               self.servers[item[1]]["timestamp"] = item[3]
             elif item[0] == "update":
-              self.servers[self.identifier]["value"].append(item[2])
+              data = item[2]
+              data["received"] = datetime.now()          
+          
+            self.servers[self.identifier]["value"].append(data)
       except:
         if stopping:
                         self.mainthread.put(("receivedstopping",self.identifier))
       
       me = datetime.now()  
       snapshot = me + timedelta(milliseconds=50)
-      nextvalue = self.latest(self.consistentread()) + random.randint(1, 15)
+      nextvalue = self.latest(None) + random.randint(1, 15)
       
       self.servers[self.identifier]["timestamp"][self.identifier] = me
       for server in range(len(self.servers)):
@@ -129,7 +133,7 @@ class Server(Process):
             self.servers[self.identifier]["value"].append({
               "origin": self.identifier,
               "timestamp": snapshot,
-              "key": "{}{}".format(snapshot.strftime('%s'), self.identifier), 
+              "key": "{}-{}".format(snapshot.strftime('%s'), self.identifier), 
               "value":
               nextvalue
             })
@@ -137,7 +141,7 @@ class Server(Process):
             self.otherqueues[server].put(("update", self.identifier, {
               "origin": self.identifier,
               "timestamp": snapshot,
-              "key": "{}{}".format(snapshot.strftime('%s'), self.identifier),
+              "key": "{}-{}".format(snapshot.strftime('%s'), self.identifier),
               "value":
               nextvalue
             }))
