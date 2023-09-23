@@ -5,63 +5,20 @@ import random
 import operator
 thismoment = datetime.now()
 servers = [
-  {
-    "name": "server1",
-    "value": [],
-    "timestamp": {
-      0: thismoment,
-      1: thismoment,
-      2: thismoment,
-      3: thismoment,
-      4: thismoment
-    }
-  },
-  {
-    "name": "server2",
-    "value": [],
-        "timestamp": {
-      0: thismoment,
-      1: thismoment,
-      2: thismoment,
-      3: thismoment,
-      4: thismoment
-    }
-  },
-    {
-    "name": "server3",
-      "value": [],
-      "timestamp": {
-      0: thismoment,
-      1: thismoment,
-      2: thismoment,
-      3: thismoment,
-      4: thismoment
-    }
-  },
-  {
-    "name": "server4",
-    "value": [],
-    "timestamp": {
-      0: thismoment,
-      1: thismoment,
-      2: thismoment,
-      3: thismoment,
-      4: thismoment
-    }
-  }
+
 ]
-for i in range(0, 4):
-  servers.append( {
+servercount = 10
+for i in range(0, servercount):
+  servdata = {
     "name": "server{}".format(len(servers)),
     "value": [],
-    "timestamp": {
-      0: thismoment,
-      1: thismoment,
-      2: thismoment,
-      3: thismoment,
-      4: thismoment
-    }
-  })
+    
+  }
+  timestamp = {}
+  servdata["timestamp"] = timestamp
+  for n in range(servercount):
+    timestamp[n] = thismoment
+  servers.append(servdata)
 
 
 class Server(Process):
@@ -74,13 +31,28 @@ class Server(Process):
     self.otherqueues = []
     self.mainthread = mainthread
 
-  def latest(self):
+  def latest(self, me):
     value = 0
     self.servers[self.identifier]["value"].sort(key=operator.itemgetter("timestamp"), reverse=False)
     for item in self.servers[self.identifier]["value"]:
-      if item["timestamp"] < self.servers[self.identifier]["timestamp"][self.identifier] and self.servers[self.identifier]["timestamp"][item["origin"]] >= item["timestamp"]:
+      if me is None:
+        me = self.servers[self.identifier]["timestamp"][self.identifier]
+      if item["timestamp"] <= me and self.servers[self.identifier]["timestamp"][item["origin"]] >= item["timestamp"]:
+        
         value = item["value"]
+        
     return value
+
+  def consistentread(self):
+    timestamps = []
+    for server in self.servers:
+      for timestamp in server["timestamp"].values():
+        timestamps.append(timestamp)
+    
+    
+    
+    return min(timestamps)
+      
   
   def run(self):
     stopping = False
@@ -90,54 +62,74 @@ class Server(Process):
       
       try:
         # print("trying to read")
-        for i in range(0, 100):
+        for i in range(0, 10000):
           item = self.queue.get_nowait()
+          
           # print("received from", item[0], item[1])
           if item is not None:
+            if item[0] == "ask":
+              
+              mainthread.put(("update", self.latest(self.consistentread())))
             if item[0] == "stop":
+              
               stopping = True
+              
+              stoppings = stoppings + 1      
+
+              #print("asked to stop")
+              
               # print("asked to stop")
             if item[0] == "receivedstopping":
               stoppings = stoppings + 1
+              #print(stoppings)
+              if stoppings >= len(self.otherqueues) - 1:
+                print("finished")
+                self.running = False
+                break
+              
+              # print(stoppings)
               # print("someone finished")
               
               
               
             if item[0] == "timestamp":
               self.servers[self.identifier]["timestamp"][item[1]] = item[2]
+              
+              self.servers[item[1]]["timestamp"] = item[3]
             elif item[0] == "update":
               self.servers[self.identifier]["value"].append(item[2])
       except:
-        pass
-      me = datetime.now()
+        if stopping:
+                        self.mainthread.put(("receivedstopping",self.identifier))
+      
+      me = datetime.now()  
+      snapshot = me + timedelta(milliseconds=50)
+      nextvalue = self.latest(self.consistentread()) + random.randint(1, 15)
+      
+      self.servers[self.identifier]["timestamp"][self.identifier] = me
       for server in range(len(self.servers)):
         if server != self.identifier:
-          self.otherqueues[server].put(("timestamp", self.identifier, me))
+          self.otherqueues[server].put(("timestamp", self.identifier, me, self.servers[self.identifier]["timestamp"]))
           # print("wrote to {}".format(server))
-        else:
-          self.servers[server]["timestamp"][self.identifier] = me
-      snapshot = me + timedelta(milliseconds=50)
-      nextvalue = self.latest() + random.randint(0, 15)
+        
+        
 
       
-      if stopping and not sent_stopping:
-        sent_stopping = True
-        stoppings = stoppings + 1
-        for queue in range(len(self.otherqueues)):
-          if queue != self.identifier:
-            self.otherqueues[queue].put(("receivedstopping",))
-
-      if stoppings == len(self.otherqueues):
-        self.running = False
-        break
+      
+            #print("sent received")
+                 
+      
       
       if not stopping:
+      
+      
         
         for server in range(len(self.servers)):
           if server == self.identifier:
             self.servers[self.identifier]["value"].append({
               "origin": self.identifier,
               "timestamp": snapshot,
+              "key": "{}{}".format(snapshot.strftime('%s'), self.identifier), 
               "value":
               nextvalue
             })
@@ -145,11 +137,15 @@ class Server(Process):
             self.otherqueues[server].put(("update", self.identifier, {
               "origin": self.identifier,
               "timestamp": snapshot,
+              "key": "{}{}".format(snapshot.strftime('%s'), self.identifier),
               "value":
               nextvalue
             }))
-    time.sleep(1)
-    self.mainthread.put(self.latest())
+    
+    #print("sending to mainthread")
+    self.mainthread.put(("update", self.latest(self.consistentread())))
+    print("ending")
+    
 
 threads = []
 queues = []
@@ -170,14 +166,46 @@ for thread in threads:
 
 time.sleep(10)
 for queue in queues:
-  queue.put(("stop",))
-  
-print("Stopping")
+  queue.put(("ask", datetime.now()))
+print("asked")
+received = []
 for thread in threads:
-  thread.join()
+  serverdata = mainthread.get()
+  if serverdata[0] == "receivedstopping":
+    for queue in range(len(queues)):
+      if queue != serverdata[1]:
+          queues[queue].put(("receivedstopping",))
+  if serverdata[0] == "update":
+    received.append(serverdata[1])
+
+for item in received:
+  print(item)
+print("sleeping")
+time.sleep(3)
+
+for queue in queues:
+  queue.put(("stop",))
+time.sleep(1)  
+print("Stopping")
+
 print("Joined")
 from pprint import pprint
 # pprint(servers)
-for thread in threads:
-  serverdata = mainthread.get()
-  print(serverdata)
+received = []
+
+while len(received) < len(servers):
+  try:
+      serverdata = mainthread.get_nowait()
+      # print(serverdata)
+      if serverdata[0] == "receivedstopping":
+        for queue in range(len(queues)):
+          if queue != serverdata[1]:
+              queues[queue].put(("receivedstopping",))
+      if serverdata[0] == "update":
+        
+        received.append(serverdata[1])
+  except:
+    pass
+print("finished queue")
+for item in received:
+  print(item)
