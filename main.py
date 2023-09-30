@@ -35,13 +35,13 @@ class Server(Process):
 
   def latest(self, me):
     value = 0
-    self.servers[self.identifier]["value"].sort(key=operator.itemgetter("key"), reverse=False)
+    self.servers[self.identifier]["value"].sort(key=operator.itemgetter("key"), reverse=True)
     for item in self.servers[self.identifier]["value"]:
-      if me is None:
-        me = self.servers[self.identifier]["timestamp"][self.identifier]
-      if item["timestamp"] < me and self.servers[self.identifier]["timestamp"][item["origin"]] > item["timestamp"]:
+      
+      if self.servers[item["origin"]]["timestamp"][item["origin"]] >= item["timestamp"] and item["timestamp"] >= me:
         
         value = item["value"]
+        break
         
     return value
 
@@ -84,9 +84,9 @@ class Server(Process):
               stoppings = stoppings + 1
               #print(stoppings)
               if stoppings >= len(self.otherqueues):
-                print("finished")
+                
                 self.running = False
-                break
+                # break
               
               # print(stoppings)
               # print("someone finished")
@@ -101,16 +101,18 @@ class Server(Process):
               data = item[2]
               data["received"] = datetime.now()          
           
-            self.servers[self.identifier]["value"].append(data)
+              self.servers[self.identifier]["value"].append(data)
       except:
-        if stopping:
-                        self.mainthread.put(("receivedstopping",self.identifier))
+        if stopping and not sent_stopping:
+          sent_stopping = True
+          self.mainthread.put(("receivedstopping", self.identifier))
       
       me = datetime.now()  
-      snapshot = me + timedelta(milliseconds=50)
-      nextvalue = self.latest(None) + random.randint(1, 15)
+      snapshot = me + timedelta(milliseconds=20)
+      nextvalue = self.latest(self.consistentread()) + random.randint(1, 2)
       
-      self.servers[self.identifier]["timestamp"][self.identifier] = me
+      if not stopping:
+          self.servers[self.identifier]["timestamp"][self.identifier] = me
       for server in range(len(self.servers)):
         if server != self.identifier:
           self.otherqueues[server].put(("timestamp", self.identifier, me, self.servers[self.identifier]["timestamp"]))
@@ -148,9 +150,9 @@ class Server(Process):
     
     #print("sending to mainthread")
     self.mainthread.put(("update", self.latest(self.consistentread())))
-    print("ending")
     
-
+    
+print("Starting simulation with {} threads".format(len(servers)))
 threads = []
 queues = []
 mainthread = Queue()
@@ -181,6 +183,7 @@ for thread in threads:
           queues[queue].put(("receivedstopping",))
   if serverdata[0] == "update":
     received.append(serverdata[1])
+
 
 for item in received:
   print(item)
@@ -213,3 +216,4 @@ while len(received) < len(servers):
 print("finished queue")
 for item in received:
   print(item)
+print("Simulation finished")
